@@ -1,0 +1,9 @@
+# pysalearn example configuration. Copy this file to pysalearn.cnf and configure it for your needs
+
+[POP]
+host=hostname
+user=username
+pass=password
+
+[AUTHORIZED REPORTERS]
+spamReportHeaderKey=key
