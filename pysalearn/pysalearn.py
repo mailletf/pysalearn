@@ -20,8 +20,10 @@
 import ConfigParser
 import poplib, email
 import datetime
+import time
 import re
 import os
+import sys
 import subprocess
 
 
@@ -89,23 +91,31 @@ def train_on_message(mailscanner_id, quarantine_folder):
 
 def train_sa(config_file='pysalearn.cnf'):
 
+    print "Started Spamassassin automatic trainer"
+    print "------"
+    
     config = ConfigParser.ConfigParser()
     config.read(config_file)
 
     quarantine_folder = config.get('SPAMASSASSIN', 'quarantine_folder')
 
-    msg_id = -1
-    for msg_id, msg_contents in load_messages(config.get('POP', 'host'), config.get('POP', 'user'), 
-                                              config.get('POP', 'pass'), config.get('AUTHORIZED REPORTERS', 'spamReportHeaderKey')):
-        print "  Training on %s" % msg_id
-        try:
-            train_on_message(msg_id, quarantine_folder)
-        except ValueError as e:
-            print e
+    while True:    
+        msg_id = -1
+        for msg_id, msg_contents in load_messages(config.get('POP', 'host'), config.get('POP', 'user'), 
+                                                  config.get('POP', 'pass'), config.get('AUTHORIZED REPORTERS', 'spamReportHeaderKey')):
+            print "  Training on %s" % msg_id
+            try:
+                train_on_message(msg_id, quarantine_folder)
+            except ValueError as e:
+                print e
 
-    if msg_id>-1:
-        print "Synching db..."
-        print subprocess.check_output(['sa-learn', '--sync'])
+        if msg_id>-1:
+            print "Synching db..."
+            print subprocess.check_output(['sa-learn', '--sync'])
+            print ""
 
+        # Sleep for 5 minutes
+        sys.stdout.write("\r Last check at %s. Sleeping for 5 minutes..." % datetime.datetime.now())
+        time.sleep(5*60)
 
 train_sa()
