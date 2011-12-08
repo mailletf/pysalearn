@@ -7,3 +7,6 @@ pass=password
 
 [AUTHORIZED REPORTERS]
 spamReportHeaderKey=key
+
+[SPAMASSASSIN]
+quarantine_folder=folder

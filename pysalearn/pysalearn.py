@@ -19,7 +19,10 @@
 
 import ConfigParser
 import poplib, email
+import datetime
 import re
+import os
+import subprocess
 
 
 def load_messages(host, user, passwd, spamReportHeaderKey):
@@ -31,6 +34,7 @@ def load_messages(host, user, passwd, spamReportHeaderKey):
     # Iterate over all messages
     num_msg, mailbox_size = pop3.stat()
     for msg_idx in xrange(num_msg):
+        print "=== Loading message - %s ===" % datetime.datetime.now()
         # Fetch the message and parse it into an email object
         msg = email.message_from_string("\n".join(pop3.retr(msg_idx+1)[1]))
 
@@ -44,29 +48,64 @@ def load_messages(host, user, passwd, spamReportHeaderKey):
             if part_idx==0:
                 sender = part['From']
                 receiver = part['To']
-                print "%s -> %s" % (sender, receiver)
+                print "  Reported by %s" % sender
                 # TODO CHECK THAT USER IS ALLOWED TO REPORT
                 
                 if not "ALL_TRUSTED" in part[spamReportHeaderKey]:
                     print "Message %d is not trusted!" % msg_idx
-                    continue
+                    break
                     # TODO REJECT
                 
             # If this is the fowarded ham/spam
             elif part_idx==2:
                 match = re.search(r"MailScanner-ID:.([-\w]+)\n", part.as_string(), re.IGNORECASE | re.MULTILINE | re.VERBOSE)
                 if match:
-                    print "--- Spam message ---"
+                    print "  --- Spam message ---"
                     mailscanner_id = match.group(1)
-                    print mailscanner_id
-                    print "%s -> %s" % (part['From'], part['To'])
+                    print "  ID: %s" % mailscanner_id
+                    print "    %s -> %s" % (part['From'], part['To'])
+                
+                    yield([mailscanner_id, part])
+                    break
+                
                 else:
                     print "cant match!!"
                     # TODO
 
+        # We've processed the message so delete it
+        pop3.dele(msg_idx+1)
+    
+    pop3.quit()
 
 
-config = ConfigParser.ConfigParser()
-config.read('pysalearn.cnf')
+def train_on_message(mailscanner_id, quarantine_folder):
+    path_to_message = subprocess.check_output(['find', '%s' % quarantine_folder, '-name', '%s' % (mailscanner_id)]).strip()
+    if not os.path.exists(path_to_message): raise ValueError("For id:'%s', found path '%s' but it does not exist." % (mailscanner_id, path_to_message))
+    print "   Path to message: %s" % path_to_message
+    print subprocess.check_output(['sa-learn', '--no-sync', '--spam', '%s' % path_to_message])
 
-load_messages(config.get('POP', 'host'), config.get('POP', 'user'), config.get('POP', 'pass'), config.get('AUTHORIZED REPORTERS', 'spamReportHeaderKey'))
+    # and print status: sa-learn --dump magic
+
+
+def train_sa(config_file='pysalearn.cnf'):
+
+    config = ConfigParser.ConfigParser()
+    config.read(config_file)
+
+    quarantine_folder = config.get('SPAMASSASSIN', 'quarantine_folder')
+
+    msg_id = -1
+    for msg_id, msg_contents in load_messages(config.get('POP', 'host'), config.get('POP', 'user'), 
+                                              config.get('POP', 'pass'), config.get('AUTHORIZED REPORTERS', 'spamReportHeaderKey')):
+        print "  Training on %s" % msg_id
+        try:
+            train_on_message(msg_id, quarantine_folder)
+        except ValueError as e:
+            print e
+
+    if msg_id>-1:
+        print "Synching db..."
+        print subprocess.check_output(['sa-learn', '--sync'])
+
+
+train_sa()
