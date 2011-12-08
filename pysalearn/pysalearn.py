@@ -36,7 +36,7 @@ def load_messages(host, user, passwd, spamReportHeaderKey):
     # Iterate over all messages
     num_msg, mailbox_size = pop3.stat()
     for msg_idx in xrange(num_msg):
-        print "=== Loading message - %s ===" % datetime.datetime.now()
+        print "\n=== Loading message - %s ===" % datetime.datetime.now()
         # Fetch the message and parse it into an email object
         msg = email.message_from_string("\n".join(pop3.retr(msg_idx+1)[1]))
 
@@ -46,13 +46,17 @@ def load_messages(host, user, passwd, spamReportHeaderKey):
             continue
         
         for part_idx, part in enumerate(msg.walk()):
+            # Extract mailscanner id of this part from the headers
+            mailscanner_id_match = re.search(r"MailScanner-ID:.([-\w]+)\n", part.as_string(), re.IGNORECASE | re.MULTILINE | re.VERBOSE)
+            
             # If this part is from the fowarder
             if part_idx==0:
                 sender = part['From']
-                receiver = part['To']
                 print "  Reported by %s" % sender
-                # TODO CHECK THAT USER IS ALLOWED TO REPORT
+                if mailscanner_id_match:
+                    print "  ID of reporter msg: %s" % mailscanner_id_match.group(1)
                 
+                # TODO CHECK THAT USER IS ALLOWED TO REPORT
                 if not "ALL_TRUSTED" in part[spamReportHeaderKey]:
                     print "Message %d is not trusted!" % msg_idx
                     break
@@ -60,10 +64,9 @@ def load_messages(host, user, passwd, spamReportHeaderKey):
                 
             # If this is the fowarded ham/spam
             elif part_idx==2:
-                match = re.search(r"MailScanner-ID:.([-\w]+)\n", part.as_string(), re.IGNORECASE | re.MULTILINE | re.VERBOSE)
-                if match:
+                if mailscanner_id_match:
                     print "  --- Spam message ---"
-                    mailscanner_id = match.group(1)
+                    mailscanner_id = mailscanner_id_match.group(1)
                     print "  ID: %s" % mailscanner_id
                     print "    %s -> %s" % (part['From'], part['To'])
                 
