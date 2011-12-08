@@ -100,19 +100,20 @@ def train_sa(config_file='pysalearn.cnf'):
     quarantine_folder = config.get('SPAMASSASSIN', 'quarantine_folder')
 
     while True:    
-        msg_id = -1
+        trained_cnt = 0
         for msg_id, msg_contents in load_messages(config.get('POP', 'host'), config.get('POP', 'user'), 
                                                   config.get('POP', 'pass'), config.get('AUTHORIZED REPORTERS', 'spamReportHeaderKey')):
             print "  Training on %s" % msg_id
             try:
                 train_on_message(msg_id, quarantine_folder)
+                trained_cnt+=1
             except ValueError as e:
                 print e
 
-        if msg_id>-1:
-            print "Synching db..."
+        if trained_cnt>0:
+            print "Trained on %d messages. Synching db..." % trained_cnt
             print subprocess.check_output(['sa-learn', '--sync'])
-            print ""
+            print "\n"
 
         # Sleep for 5 minutes
         sys.stdout.write("\r Last check at %s. Sleeping for 5 minutes..." % datetime.datetime.now())
