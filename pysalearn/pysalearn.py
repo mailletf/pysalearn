@@ -122,7 +122,7 @@ def train_sa(config_file='pysalearn.cnf'):
             except ValueError as e:
                 print e
 
-        if any((trained_cnt[report_type]>0 for report_type in ['spam', 'ham'])):
+        if any((cnt>0 for cnt in trained_cnt.values())):
             print "Trained on %d spams, %d hams. Synching db..." % (trained_cnt['spam'], trained_cnt['ham'])
             print subprocess.check_output(['sa-learn', '--sync'])
             print "\n"
