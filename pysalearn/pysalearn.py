@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # 
 # pysalearn
-# Copyright (C) 2011  Francois Maillet
+# Copyright (C) 2011-2012  Francois Maillet
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -27,7 +27,7 @@ import sys
 import subprocess
 
 
-def load_messages(host, user, passwd, spamReportHeaderKey):
+def load_msgs_from_mailbox(host, user, passwd, spamReportHeaderKey):
     # Connect to the pop3 server
     pop3 = poplib.POP3(host)
     pop3.user(user)
@@ -83,13 +83,23 @@ def load_messages(host, user, passwd, spamReportHeaderKey):
     pop3.quit()
 
 
-def train_on_message(mailscanner_id, quarantine_folder):
+def load_msgs(config):
+    for report_type in ['spam', 'ham']:
+        for msg_id, msg_contents in load_msgs_from_mailbox(config.get('POP', 'host'), config.get('POP', 'user_%s' % report_type),
+                                                           config.get('POP', 'pass_%s' % report_type),
+                                                           config.get('AUTH REPORTERS', 'spamReportHeaderKey')):
+            yield report_type, msg_id, msg_contents
+
+
+def train_on_message(report_type, mailscanner_id, quarantine_folder):
     path_to_message = subprocess.check_output(['find', '%s' % quarantine_folder, '-name', '%s' % (mailscanner_id)]).strip()
     if not os.path.exists(path_to_message): raise ValueError("For id:'%s', found path '%s' but it does not exist." % (mailscanner_id, path_to_message))
     print "   Path to message: %s" % path_to_message
-    print subprocess.check_output(['sa-learn', '--no-sync', '--spam', '%s' % path_to_message])
+    print subprocess.check_output(['sa-learn', '--no-sync', '--%s' % report_type, '%s' % path_to_message])
 
     # and print status: sa-learn --dump magic
+
+
 
 
 def train_sa(config_file='pysalearn.cnf'):
@@ -103,18 +113,17 @@ def train_sa(config_file='pysalearn.cnf'):
     quarantine_folder = config.get('SPAMASSASSIN', 'quarantine_folder')
 
     while True:    
-        trained_cnt = 0
-        for msg_id, msg_contents in load_messages(config.get('POP', 'host'), config.get('POP', 'user'), 
-                                                  config.get('POP', 'pass'), config.get('AUTHORIZED REPORTERS', 'spamReportHeaderKey')):
-            print "  Training on %s" % msg_id
+        trained_cnt = {'spam':0, 'ham':0}
+        for report_type, msg_id, msg_contents in load_msgs(config):
+            print "  Training on %s (%s)" % (msg_id, report_type)
             try:
-                train_on_message(msg_id, quarantine_folder)
-                trained_cnt+=1
+                train_on_message(report_type, msg_id, quarantine_folder)
+                trained_cnt[report_type]+=1
             except ValueError as e:
                 print e
 
-        if trained_cnt>0:
-            print "Trained on %d messages. Synching db..." % trained_cnt
+        if any((trained_cnt[report_type]>0 for report_type in ['spam', 'ham'])):
+            print "Trained on %d spams, %d hams. Synching db..." % (trained_cnt['spam'], trained_cnt['ham'])
             print subprocess.check_output(['sa-learn', '--sync'])
             print "\n"
 

@@ -2,10 +2,12 @@
 
 [POP]
 host=hostname
-user=username
-pass=password
+user_spam=username
+pass_spam=password
+user_ham=username
+pass_ham=password
 
-[AUTHORIZED REPORTERS]
+[AUTH REPORTERS]
 spamReportHeaderKey=key
 
 [SPAMASSASSIN]
