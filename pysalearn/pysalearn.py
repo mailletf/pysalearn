@@ -26,6 +26,7 @@ import os
 import sys
 import subprocess
 import argparse
+import cPickle
 
 
 class EmailException(Exception):
@@ -77,8 +78,8 @@ def extract_id_from_msg(raw_msg, spamReportHeaderKey):
                 print "  ID of reporter msg: %s" % reporter_id
             
             # TODO CHECK THAT USER IS ALLOWED TO REPORT
-            if not "ALL_TRUSTED" in part[spamReportHeaderKey]:
-                raise EmailException(2, raw_msg, msg, "Message %d is not trusted!" % msg_idx)
+            if not part or not "ALL_TRUSTED" in part[spamReportHeaderKey]:
+                raise EmailException(2, raw_msg, msg, "Message %s is not trusted!" % reporter_id)
             
         # If this is the fowarded ham/spam
         elif part_idx==2:
@@ -91,6 +92,7 @@ def extract_id_from_msg(raw_msg, spamReportHeaderKey):
             print "    %s -> %s" % (part['From'], part['To'])
         
             return Report(raw_msg, part, reporter_id, spam_id)
+
 
 
 def load_msgs_from_pop(config, eraseFromServer=True):
@@ -110,9 +112,16 @@ def load_msgs_from_pop(config, eraseFromServer=True):
             try:
                 report = extract_id_from_msg(raw_msg, spamReportHeaderKey)
                 yield report_type, report 
-            except Exception as e:
+            except EmailException as e:
                 print e
-                continue
+                # export message for later debugging
+                data = {
+                    'raw_msg': raw_msg,
+                    'exception': str(e)
+                }
+                fn = "error-%s.dump" % datetime.datetime.now().strftime("%s")
+                cPickle.dump(data, open(fn, "w"), protocol=2)
+                print "  Saved to %s" % fn
 
             # We've processed the message so delete it
             if eraseFromServer:
