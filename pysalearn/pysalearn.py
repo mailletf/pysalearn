@@ -29,11 +29,32 @@ import argparse
 
 
 class EmailException(Exception):
-    def __init(self, error_no, raw_email, email, detail):
+    def __init__(self, error_no, raw_email, email, detail):
+
+        self.ERROR_TYPES = {
+            1: "Msg Not Multipart",
+            2: "Reporter not allowed",
+            3: "Can't match",
+        }
+
         self.error_no = error_no
         self.raw_email = raw_email
         self.email = email
         self.detail = detail
+
+    def getType(self):
+        return self.ERROR_TYPES[self.error_no]
+
+    def __str__(self):
+        return "<EmailException: %s :: %s>" % (self.getType(), self.detail)
+
+
+class Report(object):
+    def __init__(self, raw_msg, contents, reporter_id, reported_id):
+        self.raw_msg = raw_msg
+        self.contents = contents
+        self.reporter_id = reporter_id
+        self.reported_id = reported_id
 
 
 def extract_id_from_msg(raw_msg, spamReportHeaderKey):
@@ -52,7 +73,8 @@ def extract_id_from_msg(raw_msg, spamReportHeaderKey):
             sender = part['From']
             print "  Reported by %s" % sender
             if mailscanner_id_match:
-                print "  ID of reporter msg: %s" % mailscanner_id_match.group(1)
+                reporter_id = mailscanner_id_match.group(1)
+                print "  ID of reporter msg: %s" % reporter_id
             
             # TODO CHECK THAT USER IS ALLOWED TO REPORT
             if not "ALL_TRUSTED" in part[spamReportHeaderKey]:
@@ -64,13 +86,11 @@ def extract_id_from_msg(raw_msg, spamReportHeaderKey):
                 raise EmailException(3, raw_msg, msg, "Can't match")
                 
             print "  --- Spam message ---"
-            mailscanner_id = mailscanner_id_match.group(1)
-            print "  ID: %s" % mailscanner_id
+            spam_id = mailscanner_id_match.group(1)
+            print "  ID: %s" % spam_id
             print "    %s -> %s" % (part['From'], part['To'])
         
-            return ([mailscanner_id, part])
-
-
+            return Report(raw_msg, part, reporter_id, spam_id)
 
 
 def load_msgs_from_pop(config, eraseFromServer=True):
@@ -88,8 +108,8 @@ def load_msgs_from_pop(config, eraseFromServer=True):
             # Fetch the message and parse it into an email object
             raw_msg = pop3.retr(msg_idx+1)
             try:
-                msg_id, msg_contents = extract_id_from_msg(raw_msg, spamReportHeaderKey)
-                yield report_type, msg_id, msg_contents
+                report = extract_id_from_msg(raw_msg, spamReportHeaderKey)
+                yield report_type, report 
             except Exception as e:
                 print e
                 continue
@@ -99,6 +119,20 @@ def load_msgs_from_pop(config, eraseFromServer=True):
                 pop3.dele(msg_idx+1)
         
         pop3.quit()
+
+
+def save_msg_with_id(config, id_to_save):
+    """
+    Save a given raw email to a text file. This can be used to create test cases
+    """
+    for report_type, report in load_msgs_from_pop(config, False):
+        if report.reporter_id == id_to_save:
+            with open("%s.rawemail" % report.reporter_id, "w") as writer:
+                print "Wrote msg to %s.rawemail" % report.reporter_id
+                writer.write(str(report.raw_msg))
+            return
+    print "Could not find any message matching id %s" % id_to_save
+            
 
 
 def train_on_id(report_type, mailscanner_id, quarantine_folder):
@@ -112,25 +146,22 @@ def train_on_id(report_type, mailscanner_id, quarantine_folder):
 
 
 
-def train_sa(config_file='pysalearn.cnf', debug=False):
+def train_sa(config, debug=False):
 
     print "Started Spamassassin automatic trainer"
     print "------"
     
-    config = ConfigParser.ConfigParser()
-    config.read(config_file)
-
     quarantine_folder = config.get('SPAMASSASSIN', 'quarantine_folder')
 
     while True:    
         trained_cnt = {'spam':0, 'ham':0}
-        for report_type, msg_id, msg_contents in load_msgs_from_pop(config, not debug):
+        for report_type, report in load_msgs_from_pop(config, not debug):
             if debug:
-                print "  Would train on %s (%s)" % (msg_id, report_type)
+                print "  Would train on %s (%s)" % (report.reported_id, report_type)
                 continue
-            print "  Training on %s (%s)" % (msg_id, report_type)
+            print "  Training on %s (%s)" % (report.reported_id, report_type)
             try:
-                train_on_id(report_type, msg_id, quarantine_folder)
+                train_on_id(report_type, report.reported_id, quarantine_folder)
                 trained_cnt[report_type]+=1
             except ValueError as e:
                 print e
@@ -146,11 +177,25 @@ def train_sa(config_file='pysalearn.cnf', debug=False):
         time.sleep(5*60)
 
 
+def loadConfig():
+    config = ConfigParser.ConfigParser()
+    config.read('pysalearn.cnf')
+    return config
 
-parser = argparse.ArgumentParser(description='pysalearn')
-parser.add_argument("--debug", help="Don't do any training. Just load messages and extract ids", action="store_true")
 
-args = parser.parse_args()
+if __name__ == "__main__":
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='pysalearn')
+    parser.add_argument("--debug", help="Don't do any training. Just load messages and extract ids", action="store_true")
+    parser.add_argument("--saveMsg", help="Save message to disk")
 
-train_sa(debug=args.debug)
+    args = parser.parse_args()
+
+    # Load configuration
+    config = loadConfig()
+
+    if args.saveMsg:
+        save_msg_with_id(config, args.saveMsg)
+    else:    
+        train_sa(config, debug=args.debug)
 
